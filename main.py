@@ -15,8 +15,8 @@ async def start(message: types.Message):
 
 
 async def main():
-    await bot.polling(none_stop=True, skip_pending=True)
     await create_tables()
+    await bot.polling(none_stop=True, skip_pending=True)
 
 
 asyncio.run(main())
