@@ -38,7 +38,7 @@ banner_patterns = {"flo": ["minecraft:flower_banner_pattern", ["minecraft:oxeye_
 
 
 def get_resources(schem: Schematic, *, get_storage_items: bool = True, storages: list[str] = None,
-                  include_banner_dependencies: bool = False) -> list[
+                  include_banner_dependencies: bool = False, include_armor_stands: bool = False, include_frames: bool = False) -> list[
     dict[str, str | int | list[dict[str, str | int]]]]:
     blocks = {}
     storage_items = {}
@@ -115,13 +115,97 @@ def get_resources(schem: Schematic, *, get_storage_items: bool = True, storages:
                         else:
                             storage_items[str(item["id"])] += int(item["Count"])
 
+        if include_armor_stands or include_frames:
+            for entity in reg.entities:
+                if blocks.get(entity.id, None) is None:
+                    blocks[entity.id] = 1
+                else:
+                    blocks[entity.id] += 1
+                if entity.id == "minecraft:armor_stand":
+                    for item in list(entity.data["ArmorItems"])+list(entity.data["HandItems"]):
+                        tag = item.get("tag", None)
+                        if tag is not None and (
+                                str(entity.id) in storages if storages is not None else True):
+                            block_entity_tag = tag.get("BlockEntityTag", None)
+                            stored_enchantments = tag.get("StoredEnchantments", None)
+                            enchantments = tag.get("Enchantments", None)
+                            title = tag.get("title", None)
+                            if block_entity_tag is not None:
+                                block_entity_items = block_entity_tag.get("Items", None)
+                                if block_entity_items is not None:
+                                    for block_entity_item in block_entity_items:
+                                        if storage_items.get(block_entity_item["id"], None) is None:
+                                            storage_items[str(block_entity_item["id"])] = int(
+                                                block_entity_item["Count"])
+                                        else:
+                                            storage_items[str(block_entity_item["id"])] += int(
+                                                block_entity_item["Count"])
+                            if stored_enchantments is not None:
+                                enchs = []
+                                for enchantment in stored_enchantments:
+                                    ench = {"id": str(enchantment["id"]), "level": int(enchantment["lvl"])}
+                                    enchs.append(ench)
+                                item["id"] = json.dumps({"id": str(item["id"]), "enchantments": enchs})
+                            if enchantments is not None:
+                                enchs = []
+                                for enchantment in enchantments:
+                                    ench = {"id": str(enchantment["id"]), "level": int(enchantment["lvl"])}
+                                    enchs.append(ench)
+                                item["id"] = json.dumps({"id": str(item["id"]), "enchantments": enchs})
+                            if title is not None:
+                                item["id"] = json.dumps(
+                                    {"id": str(item["id"]), "title": str(title), "pages": tag.get("pages")})
+                        if len(item) > 0:
+                            if storage_items.get(item["id"], None) is None:
+                                storage_items[str(item["id"])] = int(item["Count"])
+                            else:
+                                storage_items[str(item["id"])] += int(item["Count"])
+                if entity.id == "minecraft:item_frame":
+                    item = entity.data["Item"]
+                    tag = item.get("tag", None)
+                    if tag is not None and (
+                            str(entity.id) in storages if storages is not None else True):
+                        block_entity_tag = tag.get("BlockEntityTag", None)
+                        stored_enchantments = tag.get("StoredEnchantments", None)
+                        enchantments = tag.get("Enchantments", None)
+                        title = tag.get("title", None)
+                        if block_entity_tag is not None:
+                            block_entity_items = block_entity_tag.get("Items", None)
+                            if block_entity_items is not None:
+                                for block_entity_item in block_entity_items:
+                                    if storage_items.get(block_entity_item["id"], None) is None:
+                                        storage_items[str(block_entity_item["id"])] = int(
+                                            block_entity_item["Count"])
+                                    else:
+                                        storage_items[str(block_entity_item["id"])] += int(
+                                            block_entity_item["Count"])
+                        if stored_enchantments is not None:
+                            enchs = []
+                            for enchantment in stored_enchantments:
+                                ench = {"id": str(enchantment["id"]), "level": int(enchantment["lvl"])}
+                                enchs.append(ench)
+                            item["id"] = json.dumps({"id": str(item["id"]), "enchantments": enchs})
+                        if enchantments is not None:
+                            enchs = []
+                            for enchantment in enchantments:
+                                ench = {"id": str(enchantment["id"]), "level": int(enchantment["lvl"])}
+                                enchs.append(ench)
+                            item["id"] = json.dumps({"id": str(item["id"]), "enchantments": enchs})
+                        if title is not None:
+                            item["id"] = json.dumps(
+                                {"id": str(item["id"]), "title": str(title), "pages": tag.get("pages")})
+                    if storage_items.get(item["id"], None) is None:
+                        storage_items[str(item["id"])] = int(item["Count"])
+                    else:
+                        storage_items[str(item["id"])] += int(item["Count"])
+
     for item_id, count in blocks.items():
         if isinstance(count, dict):
             d = {"id": item_id, "type": "block"}
             d.update(count)
             api_blocks.append(d)
         else:
-            api_blocks.append({"id": item_id, "count": count, "type": "block"})
+            api_blocks.append({"id": str(item_id), "count": count, "type": "block"})
 
     for item_id, count in storage_items.items():
         try:
@@ -143,5 +227,5 @@ def get_resources(schem: Schematic, *, get_storage_items: bool = True, storages:
     return api_blocks
 
 
-print(get_resources(Schematic.load("bannerTest.litematic"), get_storage_items=True, storages=None,
-                    include_banner_dependencies=True))
+print(get_resources(Schematic.load("Armtest3.litematic"), get_storage_items=True, storages=None,
+                    include_banner_dependencies=True, include_armor_stands=True, include_frames=True))
