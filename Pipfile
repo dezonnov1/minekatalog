@@ -8,6 +8,8 @@ sqlalchemy = "*"
 asyncmy = "*"
 pytelegrambotapi = "*"
 aiohttp = "*"
+litemapy = "*"
+asyncstdlib = "*"
 
 [dev-packages]
 
