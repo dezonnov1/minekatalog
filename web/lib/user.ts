@@ -14,8 +14,8 @@ interface Shop {
     rating: number,
     working: boolean,
     work_time: {open_time: number, close_time: number},
-    subscribe_paid: boolean,
-    promos: {promo: string, give: number, uses: number, max_uses: number}[],
+    subscribe_paid?: boolean,
+    promos?: {promo: string, give: number, uses: number, max_uses: number}[],
 }
 
 export default interface User {
@@ -26,5 +26,8 @@ export default interface User {
     cart: unknown,
     linked_cards: unknown,
     shops: Shop[],
-    orders: Order[]
+    orders: Order[],
+    type?: string,
+    avatar: string,
+    default_avatar: boolean
 }

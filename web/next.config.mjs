@@ -8,6 +8,7 @@ const nextConfig = {
             },
         ]
     },
+    images: {domains: ["minekatalog.saddeststoryevertold.ru"]},
     reactStrictMode: false
 };
 

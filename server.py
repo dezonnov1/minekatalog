@@ -5,12 +5,14 @@ import enum
 import platform
 import traceback
 import urllib.parse
-from random import randbytes
 from json import loads
+from random import randbytes
 
+import aiohttp
 from sanic import Sanic, Request, SanicException, html, json
 from sqlalchemy import select, update
 from telebot import TeleBot
+from telebot.async_telebot import AsyncTeleBot
 from telebot.util import validate_web_app_data
 
 from config import Config
@@ -20,6 +22,8 @@ from database.models import User, Shop
 app = Sanic("MineKatalog")
 bot = TeleBot(Config.token)
 
+avatars_cache = {}
+
 with codecs.open("exception_page.html", "r", "utf-8") as f:
     exception_page = f.read()
 
@@ -27,6 +31,36 @@ with codecs.open("exception_page.html", "r", "utf-8") as f:
 class TokenType(enum.Enum):
     USER = 1
     SHOP = 2
+
+
+def get_color(chat_id: int) -> str:
+    return {
+        0: "linear-gradient(#FF845E, #D45246)",
+        1: "linear-gradient(#FEBB5B, #F68136)",
+        2: "linear-gradient(#B694F9, #6C61DF)",
+        3: "linear-gradient(#9AD164, #46BA43)",
+        4: "linear-gradient(#53edd6, #28c9b7)",
+        5: "linear-gradient(#5CAFFA, #408ACF)",
+        6: "linear-gradient(#FF8AAC, #D95574)",
+    }[abs(chat_id) % 7]
+
+
+async def get_user_photo(user: int):
+    temp_bot = AsyncTeleBot(Config.token)
+    if user in avatars_cache and datetime.datetime.now().timestamp() < avatars_cache[user]["time"]:
+        return avatars_cache[user]["avatar"]
+    async with aiohttp.ClientSession() as http_session:
+        try:
+            photos = (await temp_bot.get_user_profile_photos(user)).photos
+            photo_id = photos[len(photos) - 1][0].file_id
+            photo_url = await temp_bot.get_file_url(photo_id)
+            async with http_session.get(photo_url) as res:
+                photo_data = (False, await res.read())
+        except IndexError:
+            photo_data = (True, get_color(user))
+    avatars_cache[user] = {"time": (datetime.datetime.now() + datetime.timedelta(minutes=30)).timestamp(),
+                           "avatar": photo_data}
+    return photo_data
 
 
 @app.on_request
@@ -53,10 +87,28 @@ async def get_user(request: Request):
 
 
 def generate_token(user_id: int):
-    return base64.b64encode(str(f"User {user_id}").encode()+randbytes(50)).decode()
+    return base64.b64encode(str(f"User {user_id}").encode() + randbytes(50)).decode()
 
 
-def user_to_json(user: User):
+def shop_to_json(shop: Shop, all_info: bool = False):
+    info = {
+        "id": shop.id,
+        "shop_id": shop.shop_id,
+        "name": shop.shop_name,
+        "mc_nickname": shop.mc_nickname,
+        "position": shop.shop_position,
+        "rating": shop.rating,
+        "work_time": shop.work_time,
+    }
+    if all_info:
+        info["subscribe_paid"] = shop.subscribe_paid
+        info["promos"] = shop.available_promos
+        info["working"] = shop.working
+    return info
+
+
+async def user_to_json(user: User):
+    avatar = await get_user_photo(user.tg_id)
     return {
         "id": user.id,
         "tg_id": user.tg_id,
@@ -64,8 +116,11 @@ def user_to_json(user: User):
         "balance": user.balance,
         "cart": user.cart,
         "linked_cards": user.linked_cards,
-        "shops": [{"id": shop.id, "shop_id": shop.shop_id, "name": shop.shop_name, "mc_nickname": shop.mc_nickname, "position": shop.shop_position, "rating": shop.rating, "working": shop.working, "work_time": shop.work_time, "subscribe_paid": shop.subscribe_paid, "promos": shop.available_promos} for shop in user.shops],
-        "orders": [{"id": order.id, "order_id": order.order_id, "status": order.status, "items": order.ordered_items} for order in user.orders]
+        "shops": [shop_to_json(shop, True) for shop in user.shops],
+        "orders": [{"id": order.id, "order_id": order.order_id, "status": order.status, "items": order.ordered_items}
+                   for order in user.orders],
+        "default_avatar": avatar[0],
+        "avatar": 'data:image/png;base64, ' + base64.b64encode(avatar[1]).decode() if avatar[0] is False else avatar[1]
     }
 
 
@@ -90,7 +145,8 @@ async def get_token(request: Request):
     for key, value in info["init_data"].items():
         if value != parsed[key]:
             raise SanicException(status_code=400, message="Invalid raw_init_data")
-    if datetime.datetime.now()-datetime.datetime.fromtimestamp(int(info["init_data"]["auth_date"])) > datetime.timedelta(minutes=5):
+    if datetime.datetime.now() - datetime.datetime.fromtimestamp(
+            int(info["init_data"]["auth_date"])) > datetime.timedelta(hours=1):
         raise SanicException(status_code=400, message="Invalid raw_init_data")
     valid = validate_web_app_data(Config.token, info["raw_init_data"])
     if not valid:
@@ -98,17 +154,29 @@ async def get_token(request: Request):
     async with session() as s:
         user = (await s.execute(select(User).where(User.tg_id == parsed["user"]["id"]))).scalar_one_or_none()
         token = generate_token(parsed["user"]["id"])
-        expired_at = datetime.datetime.now()+datetime.timedelta(days=1)
+        expired_at = datetime.datetime.now() + datetime.timedelta(days=1)
         if user is None:
             user = User(tg_id=parsed["user"]["id"], token=token, expired_at=expired_at)
             s.add(user)
         else:
-            await s.execute(update(User).where(User.id == user.id).values({User.token: token, User.expired_at: expired_at}))
+            await s.execute(
+                update(User).where(User.id == user.id).values({User.token: token, User.expired_at: expired_at}))
         await s.flush()
         await s.refresh(user)
-        user = user_to_json(user)
+        user = await user_to_json(user)
+        user["type"] = "user"
         await s.commit()
         return json(user, headers={"Authorization": token})
+
+
+@app.get("/me")
+async def get_user_info(request: Request):
+    info = {"type": "shop" if request.ctx.token_type == TokenType.SHOP else "user"}
+    if request.ctx.token_type == TokenType.SHOP:
+        info.update(shop_to_json(request.ctx.user, True))
+    else:
+        info.update(await user_to_json(request.ctx.user))
+    return json(info)
 
 
 @app.before_server_start
@@ -117,7 +185,7 @@ async def attach_db(app, loop):
 
 
 def chunkstring(string, length):
-    return (string[0+i:length+i] for i in range(0, len(string), length))
+    return (string[0 + i:length + i] for i in range(0, len(string), length))
 
 
 @app.exception(Exception)
@@ -126,10 +194,11 @@ def handle_exception(request: Request, exception: SanicException):
         if request.method == "GET" and exception.status_code == 401:
             return html(exception_page.replace("{ERROR_MESSAGE}", exception.message), status=exception.status_code)
         return json({"message": exception.message}, status=exception.status_code)
-    error = "\n".join(list(map(lambda x: x[:-1], traceback.format_exception(exception))))
+    exc = traceback.format_exception(exception)
+    error = "\n".join(list(map(lambda x: x[:-1].replace("\\", "\\\\"), exc)))
     error_message = f"Произошла ошибка:\n```python\n{error}```"
     if "user" in list(request.ctx.__dict__):
-        if request.ctx.token_type.value == TokenType.USER:
+        if request.ctx.token_type == TokenType.USER:
             try:
                 user = bot.get_chat_member(request.ctx.user.tg_id, request.ctx.user.tg_id)
                 error_message = error_message + f"\nИнформация о пользователе:\n```USER_INFO\nID пользователя: {request.ctx.user.id}\nTG ID: {request.ctx.user.tg_id}```\n@{user.user.username}"

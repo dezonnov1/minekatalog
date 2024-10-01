@@ -1,19 +1,7 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import {gtEestiProDisplayMedium, gtEestiProDisplayRegular} from "@/app/fonts/fonts";
 import "./globals.css";
 import Script from "next/script";
-
-const gtEestiProDisplayRegular = localFont({
-    src: "./fonts/gteestiprodisplay_regular.otf",
-    variable: "--font-gteestiprodisplay_medium",
-    weight: "400",
-});
-
-const gtEestiProDisplayMedium = localFont({
-  src: "./fonts/gteestiprodisplay_medium.otf",
-  variable: "--font-gteestiprodisplay_medium",
-  weight: "500",
-});
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -30,7 +18,9 @@ export default function RootLayout({
     <body
         className={`${gtEestiProDisplayMedium.variable} ${gtEestiProDisplayRegular.variable} antialiased`}
     >
-    <Script src="https://telegram.org/js/telegram-web-app.js" strategy={"beforeInteractive"} />
+    <Script src="https://telegram.org/js/telegram-web-app.js" strategy={"beforeInteractive"}/>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
     {children}
     </body>
     </html>
